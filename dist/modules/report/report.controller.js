@@ -1,0 +1,49 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getDailyReport = void 0;
+const db_1 = require("../../plugins/db");
+const getDailyReport = async (req, reply) => {
+    try {
+        const today = new Date().toISOString().split("T")[0];
+        // 👉 Total deposit
+        const [depositRows] = await db_1.db.query(`SELECT SUM(amount) as total FROM transactions 
+       WHERE type='deposit' AND DATE(created_at)=?`, [today]);
+        // 👉 Total withdrawal
+        const [withdrawRows] = await db_1.db.query(`SELECT SUM(amount) as total FROM transactions 
+       WHERE type='withdrawal' AND DATE(created_at)=?`, [today]);
+        // 👉 Current balance
+        const [balanceRows] = await db_1.db.query("SELECT * FROM cash_balance WHERE date=?", [today]);
+        if (balanceRows.length === 0) {
+            return reply.status(404).send({
+                message: "No data found ❌",
+            });
+        }
+        const balance = balanceRows[0];
+        // 👉 Total cash calculate
+        const closingTotal = balance.note_500 * 500 +
+            balance.note_200 * 200 +
+            balance.note_100 * 100 +
+            balance.note_50 * 50 +
+            balance.note_20 * 20 +
+            balance.note_10 * 10;
+        return reply.send({
+            total_deposit: depositRows[0].total || 0,
+            total_withdrawal: withdrawRows[0].total || 0,
+            closing_balance: closingTotal,
+            notes: {
+                note_500: balance.note_500,
+                note_200: balance.note_200,
+                note_100: balance.note_100,
+                note_50: balance.note_50,
+                note_20: balance.note_20,
+                note_10: balance.note_10,
+            },
+        });
+    }
+    catch (error) {
+        return reply.status(500).send({
+            message: "Server error",
+        });
+    }
+};
+exports.getDailyReport = getDailyReport;

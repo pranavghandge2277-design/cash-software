@@ -1,0 +1,82 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.createTransaction = void 0;
+const db_1 = require("../../plugins/db");
+const createTransaction = async (req, reply) => {
+    const conn = await db_1.db.getConnection();
+    try {
+        await conn.beginTransaction();
+        const body = req.body;
+        const { customer_name, type, note_500 = 0, note_200 = 0, note_100 = 0, note_50 = 0, note_20 = 0, note_10 = 0, } = body;
+        const today = new Date().toISOString().split("T")[0];
+        // 👉 Get current balance
+        const [rows] = await conn.query("SELECT * FROM cash_balance WHERE date = ? FOR UPDATE", [today]);
+        if (rows.length === 0) {
+            throw new Error("Opening balance not found ❌");
+        }
+        const current = rows[0];
+        // 👉 Calculate new balance
+        const calc = (oldVal, change) => {
+            return type === "withdrawal"
+                ? oldVal - change
+                : oldVal + change;
+        };
+        const newBalance = {
+            note_500: calc(current.note_500, note_500),
+            note_200: calc(current.note_200, note_200),
+            note_100: calc(current.note_100, note_100),
+            note_50: calc(current.note_50, note_50),
+            note_20: calc(current.note_20, note_20),
+            note_10: calc(current.note_10, note_10),
+        };
+        // 👉 Calculate amount
+        const amount = note_500 * 500 +
+            note_200 * 200 +
+            note_100 * 100 +
+            note_50 * 50 +
+            note_20 * 20 +
+            note_10 * 10;
+        // 👉 Update balance
+        await conn.query(`UPDATE cash_balance SET
+      note_500=?, note_200=?, note_100=?, note_50=?, note_20=?, note_10=?
+      WHERE date=?`, [
+            newBalance.note_500,
+            newBalance.note_200,
+            newBalance.note_100,
+            newBalance.note_50,
+            newBalance.note_20,
+            newBalance.note_10,
+            today,
+        ]);
+        // 👉 Save transaction
+        await conn.query(`INSERT INTO transactions 
+      (customer_name, type, amount, note_500, note_200, note_100, note_50, note_20, note_10)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+            customer_name,
+            type,
+            amount,
+            note_500,
+            note_200,
+            note_100,
+            note_50,
+            note_20,
+            note_10,
+        ]);
+        await conn.commit();
+        return reply.send({
+            message: "Transaction successful ✅",
+            amount,
+            newBalance,
+        });
+    }
+    catch (error) {
+        await conn.rollback();
+        return reply.status(400).send({
+            message: error.message,
+        });
+    }
+    finally {
+        conn.release();
+    }
+};
+exports.createTransaction = createTransaction;
